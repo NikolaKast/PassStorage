@@ -6,6 +6,11 @@ import (
 )
 
 
+func clearScreen() {
+    fmt.Print("\033[2J")  
+    fmt.Print("\033[H") 
+}
+
 func start(){
 	fmt.Print("\033[?1049h")
 	fmt.Print("\033[H") 
@@ -16,6 +21,8 @@ func start(){
 
 func help(){
 	fmt.Printf("U can use this commands:\n")
+	fmt.Printf("'help' - Вывод данной справки\n")
+	fmt.Printf("'exit' - Выход из программы\n")
 	waitcommand()
 }
 
@@ -28,11 +35,13 @@ func waitcommand(){
 	var command string
 	fmt.Scanln(&command)
 	if command == "help"{
+		clearScreen()
 		help()
 	}else if command == "exit"{
 		fmt.Print("\033[?1049l")
 		os.Exit(0)
 	}else{
+		clearScreen()
 		incorrect()
 	}
 }
