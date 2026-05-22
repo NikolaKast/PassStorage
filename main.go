@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	//"encoding/json"
@@ -11,9 +12,9 @@ type session struct {
 	access bool
 }
 type main_json struct {
-	Name     string
-	Cnt_pass int
-	Passwds  []pass_data
+	Name     string      `json:"Name"`
+	Cnt_pass int         `json:"Count_passwords"`
+	Passwds  []pass_data `json:"Passwords,omitempty"`
 }
 type pass_data struct {
 	Url string
@@ -55,7 +56,7 @@ func login(cur_session *session) {
 	var username string
 	fmt.Scanln(&username)
 	var json_name string = username + ".json"
-	data, err := os.ReadFile(json_name)
+	_, err := os.ReadFile(json_name)
 	if err != nil {
 		clearScreen()
 		fmt.Printf("Account with username: '%s' doesnt exist\n", username)
@@ -63,7 +64,7 @@ func login(cur_session *session) {
 	} else {
 		clearScreen()
 		fmt.Printf("You succesfully logged as %s\n", username)
-		fmt.Println(data) // Допилить
+		// fmt.Println(data) // Допилить обработку файлов json
 		cur_session.name = username
 		waitcommand(cur_session)
 	}
@@ -75,14 +76,14 @@ func register(cur_session *session) {
 	var username string
 	fmt.Scanln(&username)
 	var json_name string = username + ".json"
-	data, err := os.ReadFile(json_name)
+	_, err := os.ReadFile(json_name)
 	if err != nil {
-		file, err := os.Create(json_name)
-		if err != nil {
-			panic(err)
-		}
-		file.Close()
-		fmt.Printf("You registered as '%s' and logged\n", username)
+		var init main_json
+		init.Cnt_pass = 0
+		init.Name = username
+		init_js, _ := json.MarshalIndent(init, "", "    ")
+		os.WriteFile(json_name, init_js, 0644)
+		fmt.Printf("You registered as '%s' and logged\n", username) // Нужно создать шифрование и обработку пароля
 		cur_session.name = username
 		waitcommand(cur_session)
 	} else {
@@ -90,7 +91,6 @@ func register(cur_session *session) {
 		fmt.Printf("You already registered\n")
 		waitcommand(cur_session)
 	}
-	fmt.Println(data)
 
 }
 
@@ -100,7 +100,7 @@ func get(cur_session *session) {
 		waitcommand(cur_session)
 	}
 	var json_name string = cur_session.name + ".json"
-	data, err := os.ReadFile(json_name)
+	_, err := os.ReadFile(json_name)
 	if err != nil {
 		panic(err)
 	}
