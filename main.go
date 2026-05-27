@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
@@ -10,16 +11,28 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 	"syscall"
 
 	"golang.org/x/crypto/argon2"
 	"golang.org/x/term"
 )
 
+/*
+Избавится от поля cnt_pass
+проверить обраточики ошибок
+заменить goto на цикл с кол-вом попыток
+Заменить в записи пароля возможность выйти при сохранении пароля
+реализовать logout
+реализовать получение пароля
+реализовать поиск пароля в получении
+*/
+
 type session struct {
 	name   string
 	data   main_json
 	access bool
+	key    []byte
 }
 type main_json struct {
 	Name     string      `json:"Name"`
@@ -88,8 +101,10 @@ func login(cur_session *session) { // Добавить обработку пар
 			fmt.Printf("Incorrect password or corrupted file\n")
 			return
 		}
-		fmt.Printf("You succesfully logged as %s\n", username)
-		// fmt.Println(data) // Допилить обработку файлов json
+		cur_session.key = key
+		cur_session.data = clear_slot
+		cur_session.access = true
+		fmt.Printf("You succesfully logged as %s\n%+v\n", username, clear_slot)
 		cur_session.name = username
 		return
 	}
@@ -158,7 +173,6 @@ func register(cur_session *session) {
 		init.Cnt_pass = 0
 		init.Name = username
 		init_js, _ := json.MarshalIndent(init, "", "    ")
-		//os.WriteFile(json_name, init_js, 0644)
 	again:
 		fmt.Printf("Please, input new password\n")
 		master_pass, _ := term.ReadPassword(int(syscall.Stdin))
@@ -166,11 +180,18 @@ func register(cur_session *session) {
 		master_control, _ := term.ReadPassword(int(syscall.Stdin))
 		if string(master_pass) != string(master_control) {
 			fmt.Printf("This is different passwords, try again\n")
-			goto again // Заменить на цикл
+			goto again
 		}
 		key := argon2.IDKey(master_pass, []byte(username), 1, 64*1024, 4, 32)
-		crypto_info, _ := encrypt([]byte(init_js), key) // Обрабочик ошибок
+		crypto_info, err := encrypt([]byte(init_js), key) // Обрабочик ошибок
+		if err != nil {
+			fmt.Printf("Error with encrypting\n")
+			return
+		}
 		os.WriteFile(json_name, crypto_info, 0644)
+		cur_session.key = key
+		cur_session.data = init
+		cur_session.access = true
 		fmt.Printf("You registered as '%s' and logged\n", username)
 		cur_session.name = username
 		return
@@ -194,8 +215,57 @@ func get(cur_session *session) {
 
 }
 
+func update_list(cur_session *session) {
+	data, _ := json.MarshalIndent(cur_session.data, "", "    ")
+	crypto_info, err := encrypt([]byte(data), cur_session.key) // Обрабочик ошибок
+	if err != nil {
+		fmt.Printf("Error with encrypting\n")
+		return
+	}
+	var json_name string = hash_json(cur_session.name)
+	os.WriteFile(json_name, crypto_info, 0644)
+}
+
+func savepass(cur_session *session) {
+	for {
+		if cur_session.access == false {
+			fmt.Printf("Вы не вошли в аккаунт\n")
+			return
+		}
+		reader := bufio.NewReader(os.Stdin) // оборачивает stdin
+		fmt.Printf("Please, input URL or info about service:\n")
+		var temp pass_data
+		temp.Url, _ = reader.ReadString('\n')
+		temp.Url = strings.TrimSpace(temp.Url)
+		fmt.Printf("Please, input login:\n")
+		temp.Log, _ = reader.ReadString('\n')
+		temp.Log = strings.TrimSpace(temp.Log)
+		fmt.Printf("Please, input password:\n")
+		temp.Pas, _ = reader.ReadString('\n')
+		temp.Pas = strings.TrimSpace(temp.Pas)
+		for {
+			clearScreen()
+			fmt.Printf("Your data: %+v\n If you agree press 'y', else press 'n'\n", temp)
+			var word string
+			fmt.Scanln(&word)
+			if word == "y" {
+				fmt.Printf("You succesfulle save your password\n")
+				cur_session.data.Passwds = append(cur_session.data.Passwds, temp)
+				cur_session.data.Cnt_pass++
+				update_list(cur_session)
+				return
+			} else if word == "n" {
+				break
+			} else {
+				return
+			}
+		}
+
+	}
+}
+
 func waitcommand(cur_session *session) {
-	for 1 == 1 {
+	for {
 		if cur_session.name == "" {
 			fmt.Printf("You doesnt logged, use 'login'\n")
 		} else {
@@ -218,6 +288,9 @@ func waitcommand(cur_session *session) {
 			register(cur_session)
 		case "get":
 			get(cur_session)
+		case "savepass":
+			savepass(cur_session)
+
 		default:
 			clearScreen()
 			incorrect()
