@@ -21,11 +21,13 @@ import (
 /*
 Избавится от поля cnt_pass
 проверить обраточики ошибок
-заменить goto на цикл с кол-вом попыток
-Заменить в записи пароля возможность выйти при сохранении пароля
-реализовать logout
+заменить goto на цикл с кол-вом попыток +
+Заменить в записи пароля возможность выйти при сохранении пароля +-
+реализовать logout +
 реализовать получение пароля
 реализовать поиск пароля в получении
+релизовать серверное взаимодействие
+реализовать вызов с консоли по команде
 */
 
 type session struct {
@@ -173,14 +175,20 @@ func register(cur_session *session) {
 		init.Cnt_pass = 0
 		init.Name = username
 		init_js, _ := json.MarshalIndent(init, "", "    ")
-	again:
-		fmt.Printf("Please, input new password\n")
-		master_pass, _ := term.ReadPassword(int(syscall.Stdin))
-		fmt.Printf("Please, repeat new password\n")
-		master_control, _ := term.ReadPassword(int(syscall.Stdin))
-		if string(master_pass) != string(master_control) {
-			fmt.Printf("This is different passwords, try again\n")
-			goto again
+		var master_pass []byte // проверить надо еще
+		for i := 0; i < 3; i++ {
+			fmt.Printf("Please, input new password\n")
+			master_pass, _ := term.ReadPassword(int(syscall.Stdin))
+			fmt.Printf("Please, repeat new password\n")
+			master_control, _ := term.ReadPassword(int(syscall.Stdin))
+			if string(master_pass) != string(master_control) {
+				fmt.Printf("This is different passwords, try again\n")
+			} else if i == 2 {
+				fmt.Printf("So many tried, try later\n")
+				return
+			} else {
+				break
+			}
 		}
 		key := argon2.IDKey(master_pass, []byte(username), 1, 64*1024, 4, 32)
 		crypto_info, err := encrypt([]byte(init_js), key) // Обрабочик ошибок
@@ -245,7 +253,7 @@ func savepass(cur_session *session) {
 		temp.Pas = strings.TrimSpace(temp.Pas)
 		for {
 			clearScreen()
-			fmt.Printf("Your data: %+v\n If you agree press 'y', else press 'n'\n", temp)
+			fmt.Printf("Your data: %+v\n If you agree press 'y', to correct, another - exit 'n'\n", temp)
 			var word string
 			fmt.Scanln(&word)
 			if word == "y" {
@@ -262,6 +270,16 @@ func savepass(cur_session *session) {
 		}
 
 	}
+}
+
+func logout(cur_session *session) {
+	clearScreen()
+	if cur_session.access == false {
+		fmt.Printf("You doesent logged\n")
+		return
+	}
+	*cur_session = session{}
+	fmt.Printf("You succesfulle logout\n")
 }
 
 func waitcommand(cur_session *session) {
@@ -290,6 +308,8 @@ func waitcommand(cur_session *session) {
 			get(cur_session)
 		case "savepass":
 			savepass(cur_session)
+		case "logout":
+			logout(cur_session)
 
 		default:
 			clearScreen()
