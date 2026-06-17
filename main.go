@@ -63,6 +63,10 @@ func help() {
 	fmt.Printf("U can use this commands:\n")
 	fmt.Printf("'help' - Вывод данной справки\n")
 	fmt.Printf("'exit' - Выход из программы\n")
+	fmt.Printf("'login' - Вход в аккаунт\n")
+	fmt.Printf("'logout' - Выход из аккаунта\n")
+	fmt.Printf("'register' - Регистрация\n")
+	fmt.Printf("'savepass' - Сохранить пароль\n")
 }
 
 func incorrect() {
@@ -220,7 +224,6 @@ func get(cur_session *session) {
 	if err != nil {
 		panic(err)
 	}
-
 }
 
 func update_list(cur_session *session) {
@@ -282,6 +285,15 @@ func logout(cur_session *session) {
 	fmt.Printf("You succesfulle logout\n")
 }
 
+func findpass(cur_session *session) {
+	clearScreen()
+	if cur_session.access == false {
+		fmt.Printf("You doesnt logged\n")
+		return
+	}
+
+}
+
 func waitcommand(cur_session *session) {
 	for {
 		if cur_session.name == "" {
@@ -310,6 +322,8 @@ func waitcommand(cur_session *session) {
 			savepass(cur_session)
 		case "logout":
 			logout(cur_session)
+		case "findpass":
+			findpass(cur_session)
 
 		default:
 			clearScreen()
