@@ -13,21 +13,29 @@ import (
 	"os"
 	"strings"
 	"syscall"
+	"time"
 
+	"github.com/atotto/clipboard"
 	"golang.org/x/crypto/argon2"
 	"golang.org/x/term"
 )
 
 /*
-Избавится от поля cnt_pass
 проверить обраточики ошибок
 заменить goto на цикл с кол-вом попыток +
-Заменить в записи пароля возможность выйти при сохранении пароля +-
+Заменить в записи пароля возможность выйти при сохранении пароля +
 реализовать logout +
-реализовать получение пароля
-реализовать поиск пароля в получении
+реализовать получение пароля +
+реализовать поиск пароля в получении +
+Добавить обработчики и проверки неверных символов (по Панкову)
 релизовать серверное взаимодействие
 реализовать вызов с консоли по команде
+Вывод всех аккаунтов
+отображение паролей (небезопасный режим)
+Добавить ограничение по бездействию + logout
+Смена мастер пароля
+Атомарная запись пароля без потери данных +
+Проверка на clipboard
 */
 
 type session struct {
@@ -67,6 +75,9 @@ func help() {
 	fmt.Printf("'logout' - Выход из аккаунта\n")
 	fmt.Printf("'register' - Регистрация\n")
 	fmt.Printf("'savepass' - Сохранить пароль\n")
+	fmt.Printf("'findpass' - Найти пароль\n")
+	fmt.Printf("'update' - Поменять данные\n")
+	fmt.Printf("'delete' - Удалить аккаунт\n")
 }
 
 func incorrect() {
@@ -234,7 +245,11 @@ func update_list(cur_session *session) {
 		return
 	}
 	var json_name string = hash_json(cur_session.name)
-	os.WriteFile(json_name, crypto_info, 0644)
+	tmpFile, _ := os.CreateTemp(".", "passstorage-*.tmp")
+	tmpFile.Write(crypto_info)
+	tmpFile.Sync()
+	tmpFile.Close()
+	os.Rename(tmpFile.Name(), json_name)
 }
 
 func savepass(cur_session *session) {
@@ -256,11 +271,11 @@ func savepass(cur_session *session) {
 		temp.Pas = strings.TrimSpace(temp.Pas)
 		for {
 			clearScreen()
-			fmt.Printf("Your data: %+v\n If you agree press 'y', to correct, another - exit 'n'\n", temp)
+			fmt.Printf("Your data: %+v\n If you agree press 'y', to correct press 'n', to leave press other symbols \n", temp)
 			var word string
 			fmt.Scanln(&word)
 			if word == "y" {
-				fmt.Printf("You succesfulle save your password\n")
+				fmt.Printf("You succesfully save your password\n")
 				cur_session.data.Passwds = append(cur_session.data.Passwds, temp)
 				cur_session.data.Cnt_pass++
 				update_list(cur_session)
@@ -285,10 +300,121 @@ func logout(cur_session *session) {
 	fmt.Printf("You succesfulle logout\n")
 }
 
-func findpass(cur_session *session) {
+func find(cur_session *session) int {
 	clearScreen()
 	if cur_session.access == false {
 		fmt.Printf("You doesnt logged\n")
+		return -1
+	}
+	fmt.Printf("Пожалуйста, введите URL или часть названия\n")
+	var search string
+	fmt.Scanln(&search)
+	search = strings.ToLower(search)
+	var results []pass_data
+	var id []int
+	var found int = 0
+	for i := 0; i < cur_session.data.Cnt_pass; i++ {
+		if strings.Contains(strings.ToLower(cur_session.data.Passwds[i].Url), search) {
+			results = append(results, cur_session.data.Passwds[i])
+			id = append(id, i)
+			found++
+		}
+
+	}
+	if found == 0 {
+		clearScreen()
+		fmt.Printf("Ничего не нашлось по данному запросу\n")
+		return -1
+	} else {
+		fmt.Printf("Нашлось столько %d совпадений\n", found)
+		for i := 0; i < found; i++ {
+			fmt.Printf("№%d\nURL/data = %s\nlogin = %s\n\n", i, results[i].Url, results[i].Log)
+		}
+		fmt.Printf("Введите номер нужного аккаунта:\n")
+		var num int
+		fmt.Scanln(&num)
+		clearScreen()
+		return id[num]
+	}
+}
+
+func findpass(cur_session *session) {
+
+	num := find(cur_session)
+	if num < 0 {
+		return
+	}
+	clipboard.WriteAll(cur_session.data.Passwds[num].Pas)
+	fmt.Printf("№%d\nURL/data = %s\nlogin = %s\n\n", num, cur_session.data.Passwds[num].Url, cur_session.data.Passwds[num].Log)
+	fmt.Printf("Ваш пароль скопирован в буфер\n")
+	fmt.Printf("Буфер будет очищен через 30 секунд или нажатием enter\n")
+	timer := time.NewTimer(30 * time.Second)
+	input := make(chan string)
+	go func() {
+		reader := bufio.NewReader(os.Stdin)
+		text, _ := reader.ReadString('\n')
+		input <- text
+	}()
+	select {
+	case <-timer.C:
+		clipboard.WriteAll("")
+
+	case <-input:
+		clipboard.WriteAll("")
+		timer.Stop()
+	}
+	clearScreen()
+	return
+}
+
+func update(cur_session *session) {
+	num := find(cur_session)
+	if num < 0 {
+		return
+	}
+	fmt.Printf("Что вы хотите изменить?\n1 - URL или данные\n2 - login\n3 - Пароль\n")
+	var chose int
+	fmt.Scanln(&chose)
+	reader := bufio.NewReader(os.Stdin)
+	switch chose {
+	case 1:
+		fmt.Printf("Введите новый URL\n")
+		cur_session.data.Passwds[num].Url, _ = reader.ReadString('\n')
+		cur_session.data.Passwds[num].Url = strings.TrimSpace(cur_session.data.Passwds[num].Url)
+	case 2:
+		fmt.Printf("Введите новый логин\n")
+		cur_session.data.Passwds[num].Log, _ = reader.ReadString('\n')
+		cur_session.data.Passwds[num].Log = strings.TrimSpace(cur_session.data.Passwds[num].Log)
+	case 3:
+		fmt.Printf("Введите новый пароль\n")
+		cur_session.data.Passwds[num].Pas, _ = reader.ReadString('\n')
+		cur_session.data.Passwds[num].Pas = strings.TrimSpace(cur_session.data.Passwds[num].Pas)
+	default:
+		clearScreen()
+		return
+	}
+	update_list(cur_session)
+	clearScreen()
+}
+
+func delete(cur_session *session) {
+	num := find(cur_session)
+	if num < 0 {
+		return
+	}
+	fmt.Printf("Вы точно хотите удалить данный аккаунт?\nНажмите 'y' - если да, любой символ - нет\n")
+	fmt.Printf("№%d\nURL/data = %s\nlogin = %s\n\n", num, cur_session.data.Passwds[num].Url, cur_session.data.Passwds[num].Log)
+	var yes string
+	fmt.Scanln(&yes)
+	if yes == "y" {
+		cur_session.data.Passwds = append(cur_session.data.Passwds[:num], cur_session.data.Passwds[num+1:]...)
+		cur_session.data.Cnt_pass--
+		update_list(cur_session)
+		clearScreen()
+		fmt.Printf("Аккаунт успешно удалён\n")
+		return
+	} else {
+		clearScreen()
 		return
 	}
 
@@ -324,6 +450,10 @@ func waitcommand(cur_session *session) {
 			logout(cur_session)
 		case "findpass":
 			findpass(cur_session)
+		case "update":
+			update(cur_session)
+		case "delete":
+			delete(cur_session)
 
 		default:
 			clearScreen()
