@@ -11,22 +11,20 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"runtime"
 	"strings"
 	"syscall"
 	"time"
 
 	"github.com/atotto/clipboard"
 	"golang.org/x/crypto/argon2"
+	"golang.org/x/sys/windows"
 	"golang.org/x/term"
 )
 
 /*
 проверить обраточики ошибок
-заменить goto на цикл с кол-вом попыток +
 Заменить в записи пароля возможность выйти при сохранении пароля +
-реализовать logout +
-реализовать получение пароля +
-реализовать поиск пароля в получении +
 Добавить обработчики и проверки неверных символов (по Панкову)
 релизовать серверное взаимодействие
 реализовать вызов с консоли по команде
@@ -55,14 +53,24 @@ type pass_data struct {
 	Pas string
 }
 
+func enableWindowsANSI() {
+	var mode uint32
+	handle := windows.Stdout
+	windows.GetConsoleMode(handle, &mode)
+	mode |= windows.ENABLE_VIRTUAL_TERMINAL_PROCESSING
+	windows.SetConsoleMode(handle, mode)
+}
+
 func clearScreen() {
 	fmt.Print("\033[2J")
 	fmt.Print("\033[H")
 }
 
 func start(cur_session *session) {
-	fmt.Print("\033[?1049h")
-	fmt.Print("\033[H")
+	if runtime.GOOS != "windows" {
+		fmt.Print("\033[?1049h")
+		fmt.Print("\033[H")
+	}
 	fmt.Printf("PassStorage\nCreated by Kast\n")
 	waitcommand(cur_session)
 }
@@ -364,7 +372,6 @@ func findpass(cur_session *session) {
 		timer.Stop()
 	}
 	clearScreen()
-	return
 }
 
 func update(cur_session *session) {
@@ -436,7 +443,11 @@ func waitcommand(cur_session *session) {
 			clearScreen()
 			help()
 		case "exit":
-			fmt.Print("\033[?1049l") // Возврат буфера консоли
+			if runtime.GOOS == "windows" {
+				clearScreen()
+			} else {
+				fmt.Print("\033[?1049l") // Возврат буфера консоли
+			}
 			os.Exit(0)
 		case "login":
 			login(cur_session)
@@ -465,6 +476,11 @@ func waitcommand(cur_session *session) {
 func main() {
 	cur_session := new(session)
 	cur_session.access = false
-	defer fmt.Print("\033[?1049l")
+	if runtime.GOOS == "windows" {
+		enableWindowsANSI()
+		clearScreen()
+	} else {
+		defer fmt.Print("\033[?1049l")
+	}
 	start(cur_session)
 }
